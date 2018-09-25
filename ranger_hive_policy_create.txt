@@ -1,0 +1,73 @@
+KERBEROS_KEYTAB=/directorypath/keytab
+KERBEROS_PRINCIPAL=fullyqualified kerberos principal name
+RANGER_HOST="rangerhostname.domain.com"
+RANGER_PORT="portnumber"
+ATLAS_PORT="portnumber"
+KNOX_HOST="knoxhostname.domain.com"
+KNOX_PORT="8444"
+KNOX_PASS=`cat /directory/path`
+HIVE_DB="$1"
+HIVE_TABLE="$2"
+ATLAS_HOST="atlashost.domain.com"
+ATLAS_PORT="21000"
+ATLAS_TAG_ROOT_DIR="/directoryname"
+ATLAS_TAG_USE_CASE_DIR="$3"
+ATLAS_TAG_FILE_NAME="filename"
+
+#get kerberos ticket
+kinit -kt ${KERBEROS_KEYTAB} ${KERBEROS_PRINCIPAL}
+
+#get list of atlas tags from hdfs file that contain hadoop_
+atlas_tag_list=$(curl -s -L -u username:${KNOX_PASS} https://${KNOX_HOST}:${KNOX_PORT}/gateway/default/webhdfs/v1/${ATLAS_TAG_ROOT_DIR}/${ATLAS_TAG_USE_CASE_DIR}/${ATLAS_TAG_FILE_NAME}?op=OPEN | grep -i "${HIVE_DB}:${HIVE_TABLE}" | cut -d ':' -f 3"
+
+#For loop to verify atlas tags exist in atlas, ldap groups exist in ldap. If all is true, create policies if policies don't exist.
+for atlas_tag in $(echo ${atlas_tag_list} | sed "s/,/ /g")
+do
+	if [[ ${atlas_tag} =~ "^hadoop-.*$" ]]; then
+	#check if atlas tag exists. If not error out.
+		atlas_tag_exists=$(curl -s -u username:${KNOX_PASS} -X GET -H 'Content-Type: application/json; charset=UTF-8' https://${KNOX_HOST}:${KNOX_PORT}/gateway/default/atlas/types?type=TRAIT | jq '.results'| grep -i ${atlas_tag} | wc -l)
+		if ["${atlas_tag_exists} -eq "0" ]; then
+		echo "---- ATLAS PROCESSING FAILURE ----"
+		echo "Atlas Tag: ${atlas_tag} should be created first"
+		exit 1
+		fi
+	# Check if ldap group exists. If not error out.
+		ldap_group_exists=$(ldapsearch -x -LLL -H ldap://ldaphostname.domain.com:portnumber/ -b "ou=nameofou,ou=local,ou=group,o=oname,c=cname" "(&(objectclass=groupofuniquenames)(cn=${atlas_tag})" cn | egrep '^cn: ' | cut -f2 -d" " | wc -l)
+		if ["${ldap_group_exists} -eq "0"]; then
+		echo "---- LDAP GROUP PROCESSING FAILURE ----"
+		echo "LDAP Group: ${atlas_tag} must be created first"
+		exit 1
+		fi
+	#Check if Hive Policy already exists, if not, create it.
+		hive_policy_exists=$(curl -s --negotiate -u : -X GET -H 'Content-Type: application/json; charset=UTF-8' http://${RANGER_HOST}:${RANGER_PORT}/service/public/v2/api/service/HDPPRD_hive/policy | jq '.[] .name' | egrep -i ${atlas_tag} | wc -l)
+		if ["${hive_policy_exists} -eq "0"]; then
+		ranger_json="'{\"service\":\"CLUSTERNAME_hive\",\"version\":\"1\",\"name\":\"${atlas_tag}\",\"isEnabled\":\"true\",\"policyType\":\"0\",\"description\":\"Read Only Access for ${atlas_tag}\",\"isAuditEnabled\":\"true\",\"resources\":{\"url\":{\"values\":[\"*\"],\"isExcludes\":\"false\",\"isRecursive\":\"true\"}},\"allowExceptions\":[],\"denyExceptions\":[],\"denyPolicyItems\":[],\"isEnabled\":\"true\",\"policyItems\":[{\"accesses\":[{\"type\":\"select\",\"isAllowed\":\"true\"},{\"type\":\"update\",\"isAllowed\":\"false\"},{\"type\":\"create\",\"isAllowed\":\"false\"},{\"type\":\"drop\",\"isAllowed\":\"false\"},{\"type\":\"alter\",\"isAllowed\":\"false\"},{\"type\":\"index\",\"isAllowed\":\"true\"},{\"type\":\"lock\",\"isAllowed\":\"false\"},{\"type\":\"all\",\"isAllowed\":\"false\"},{\"type\":\"read\",\"isAllowed\":\"true\"},{\"type\":\"write\",\"isAllowed\":\"false\"},{\"type\":\"repladmin\",\"isAllowed\":\"true\"},{\"type\":\"serviceadmin\",\"isAllowed\":\"true\"}],\"users\":[],\"groups\":[\"${atlas_tag}\"],\"conditions\":[],\"delegateAdmin\":\"false\"},],\"denyPolicyItems\":[],\"allowExceptions\":[],\"denyExceptions\":[],\"dataMaskPolicyItems\":[],\"rowFilterPolicyItems\":[]}'"
+		request_command="curl -v -i --negotiate -u : -X POST -H "Accept: application/json" -H "Content-Type: application/json" http://${RANGER_HOST}:${RANGER_PORT}/service/public/v2/api/policy --data-binary ${ranger_json}"
+		result=$(eval "${request_command}")
+		fi
+	#Validate the creation of the Ranger Policies
+		if [ "$hive_policy_exists" -eq "0" ]; then
+        FAILED_POLICY+=("${atlas_tag}")
+		else
+		SUCCESSFUL_POLICY+=("${atlas_tag}")
+		fi
+	fi
+done
+
+function join { local IFS="$1"; shift; echo "$*"; }
+ranger_fail_policies=$(join , ${FAILED_POLICY[@]})
+ranger_success_policies=$(join , ${SUCCESS_POLICY[@]})
+
+#print tag results
+echo "---- RANGER POLICY CREATION RESULTS ----"
+echo "Hive Database: ${HIVE_DB}"
+echo "Hive Table: ${HIVE_TABLE}"
+echo "Failed Policies: ${ranger_fail_policies}"
+echo "Successful Policies: ${ranger_success_policies}"
+
+
+
+
+
+
+
