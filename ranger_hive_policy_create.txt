@@ -4,12 +4,11 @@ RANGER_HOST="rangerhostname.domain.com"
 RANGER_PORT="portnumber"
 ATLAS_PORT="portnumber"
 KNOX_HOST="knoxhostname.domain.com"
-KNOX_PORT="8444"
+KNOX_PORT="portnumber"
 KNOX_PASS=`cat /directory/path`
 HIVE_DB="$1"
 HIVE_TABLE="$2"
 ATLAS_HOST="atlashost.domain.com"
-ATLAS_PORT="21000"
 ATLAS_TAG_ROOT_DIR="/directoryname"
 ATLAS_TAG_USE_CASE_DIR="$3"
 ATLAS_TAG_FILE_NAME="filename"
@@ -39,7 +38,7 @@ do
 		exit 1
 		fi
 	#Check if Hive Policy already exists, if not, create it.
-		hive_policy_exists=$(curl -s --negotiate -u : -X GET -H 'Content-Type: application/json; charset=UTF-8' http://${RANGER_HOST}:${RANGER_PORT}/service/public/v2/api/service/HDPPRD_hive/policy | jq '.[] .name' | egrep -i ${atlas_tag} | wc -l)
+		hive_policy_exists=$(curl -s --negotiate -u : -X GET -H 'Content-Type: application/json; charset=UTF-8' http://${RANGER_HOST}:${RANGER_PORT}/service/public/v2/api/service/CLUSTERNAME_hive/policy | jq '.[] .name' | egrep -i ${atlas_tag} | wc -l)
 		if ["${hive_policy_exists} -eq "0"]; then
 		ranger_json="'{\"service\":\"CLUSTERNAME_hive\",\"version\":\"1\",\"name\":\"${atlas_tag}\",\"isEnabled\":\"true\",\"policyType\":\"0\",\"description\":\"Read Only Access for ${atlas_tag}\",\"isAuditEnabled\":\"true\",\"resources\":{\"url\":{\"values\":[\"*\"],\"isExcludes\":\"false\",\"isRecursive\":\"true\"}},\"allowExceptions\":[],\"denyExceptions\":[],\"denyPolicyItems\":[],\"isEnabled\":\"true\",\"policyItems\":[{\"accesses\":[{\"type\":\"select\",\"isAllowed\":\"true\"},{\"type\":\"update\",\"isAllowed\":\"false\"},{\"type\":\"create\",\"isAllowed\":\"false\"},{\"type\":\"drop\",\"isAllowed\":\"false\"},{\"type\":\"alter\",\"isAllowed\":\"false\"},{\"type\":\"index\",\"isAllowed\":\"true\"},{\"type\":\"lock\",\"isAllowed\":\"false\"},{\"type\":\"all\",\"isAllowed\":\"false\"},{\"type\":\"read\",\"isAllowed\":\"true\"},{\"type\":\"write\",\"isAllowed\":\"false\"},{\"type\":\"repladmin\",\"isAllowed\":\"true\"},{\"type\":\"serviceadmin\",\"isAllowed\":\"true\"}],\"users\":[],\"groups\":[\"${atlas_tag}\"],\"conditions\":[],\"delegateAdmin\":\"false\"},],\"denyPolicyItems\":[],\"allowExceptions\":[],\"denyExceptions\":[],\"dataMaskPolicyItems\":[],\"rowFilterPolicyItems\":[]}'"
 		request_command="curl -v -i --negotiate -u : -X POST -H "Accept: application/json" -H "Content-Type: application/json" http://${RANGER_HOST}:${RANGER_PORT}/service/public/v2/api/policy --data-binary ${ranger_json}"
