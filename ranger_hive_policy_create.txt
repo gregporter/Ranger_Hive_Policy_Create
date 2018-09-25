@@ -22,7 +22,8 @@ atlas_tag_list=$(curl -s -L -u username:${KNOX_PASS} https://${KNOX_HOST}:${KNOX
 #For loop to verify atlas tags exist in atlas, ldap groups exist in ldap. If all is true, create policies if policies don't exist.
 for atlas_tag in $(echo ${atlas_tag_list} | sed "s/,/ /g")
 do
-	if [[ ${atlas_tag} =~ "^hadoop-.*$" ]]; then
+# Filter Atlas tags to look for tags that start with hadoop_* only.
+	if [[ ${atlas_tag} =~ "^hadoop_.*$" ]]; then
 	#check if atlas tag exists. If not error out.
 		atlas_tag_exists=$(curl -s -u username:${KNOX_PASS} -X GET -H 'Content-Type: application/json; charset=UTF-8' https://${KNOX_HOST}:${KNOX_PORT}/gateway/default/atlas/types?type=TRAIT | jq '.results'| grep -i ${atlas_tag} | wc -l)
 		if ["${atlas_tag_exists} -eq "0" ]; then
